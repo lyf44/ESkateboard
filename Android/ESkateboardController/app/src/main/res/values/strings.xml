@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">ESkateboardController</string>
+    <string name="status_running">Running</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_scanning">Scanning</string>
+    <string name="status_connecting">Connecting</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="button_start">Start</string>
+    <string name="button_stop">Stop</string>
+</resources>
