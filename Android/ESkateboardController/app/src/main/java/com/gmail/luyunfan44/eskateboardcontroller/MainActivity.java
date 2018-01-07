@@ -29,12 +29,11 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
-
-import java.util.UUID;
 
 // TODO properly stop BLE scan
 // TODO only close ble when flag_stop is true
@@ -47,6 +46,9 @@ public class MainActivity extends AppCompatActivity {
     private final int REQUEST_ENABLE_BT = 1;
     private final int LOCATION_PERMISSION_REQUEST_CODE = 2;
     private final long SCAN_PERIOD = 20000; // 10s
+    private final int NEUTRAL_SPEED = 10;
+    private final int MAX_SPEED = 100;
+    private final int MIN_SPEED = 0;
 
     // Attributes
     // flags
@@ -71,9 +73,11 @@ public class MainActivity extends AppCompatActivity {
     private TextView mTextView_Status;
     private Toast mToast;
     private Button mButton_Stop;
+    private LinearLayout mLinearLayout;
 
     // Temp
-    private int mSpeedTemp;
+    private int mSpeedTemp_VOL;
+    private int mSpeedTemp_LL = MIN_SPEED;
 
     /*
      *  Activity related
@@ -131,6 +135,10 @@ public class MainActivity extends AppCompatActivity {
         mButton_Stop.setEnabled(false);
         mButton_Stop.setVisibility(View.INVISIBLE);
         setButtonOnClickListener();
+
+        // LinearLayout
+        mLinearLayout = (LinearLayout) findViewById(R.id.linearLayout);
+        SetLinearLayoutOnClickListener();
 
         // Permission at runtine
         if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION)
@@ -356,8 +364,8 @@ public class MainActivity extends AppCompatActivity {
         flag_Stop = true;
 
         // UI
-        mSeekbar.setProgress(0);
-        mTextView_SpeedVal.setText(String.valueOf(0));
+        mSeekbar.setProgress(MIN_SPEED);
+        DisplaySpeed(MIN_SPEED);
         mSeekbar.setEnabled(false);
         mButton_Stop.setText(getString(R.string.button_start));
         mTextView_Status.setText(getString(R.string.status_stopped));
@@ -371,8 +379,8 @@ public class MainActivity extends AppCompatActivity {
         mSkateboardBleDevice = null; // so that the next time we want to connect, we must scan again.
 
         //UI
-        mSeekbar.setProgress(0);
-        mTextView_SpeedVal.setText(String.valueOf(0));
+        mSeekbar.setProgress(MIN_SPEED);
+        DisplaySpeed(MIN_SPEED);
         mSeekbar.setEnabled(false);
         mSeekbar.setVisibility(View.INVISIBLE);
         mButton_Stop.setText(getString(R.string.button_start));
@@ -398,11 +406,21 @@ public class MainActivity extends AppCompatActivity {
         if ((keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)){
             event.startTracking();
             flag_shortPress = true;
+
+            // reset mSpeedTemp_LL as speed is already changed by vol btn, next press on linearLayout
+            // should not set the speed to mSpeedTemp_LL
+            mSpeedTemp_LL = MIN_SPEED;
+
             // NOTE: no super.onKeyDown because we want to disable volume down action
             return true;
         } else if ((keyCode == KeyEvent.KEYCODE_VOLUME_UP)){
             event.startTracking();
             flag_shortPress = true;
+
+            // reset mSpeedTemp_LL as speed is already changed by vol btn, next press on linearLayout
+            // should not set the speed to mSpeedTemp_LL
+            mSpeedTemp_LL = MIN_SPEED;
+
             // NOTE: no super.onKeyDown because we want to disable volume down action
             return true;
         }
@@ -414,20 +432,34 @@ public class MainActivity extends AppCompatActivity {
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         if ((keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
             // if onKeyLongPress has been handled.
-            if (!flag_shortPress) {
+            final int flag = event.getFlags();
+            if ((flag & KeyEvent.FLAG_CANCELED) == KeyEvent.FLAG_CANCELED &&
+                    (flag & KeyEvent.FLAG_CANCELED_LONG_PRESS) == KeyEvent.FLAG_CANCELED_LONG_PRESS) {
+                // Log.i(TAG, "long press handled");
                 return true;
             }
 
-            int curProgress = mSeekbar.getProgress();
-            int newProgress = curProgress - 5;
-            if (newProgress < 0 ) {
-                newProgress = 0;
+            // if short press, decrease speed(progress)
+            int curSpeed = mSeekbar.getProgress();
+            int newSpeed;
+            if (curSpeed > NEUTRAL_SPEED) {
+                // if currently skateboard is moving forward, decrease speed by 5
+                newSpeed = curSpeed - 5;
+                if (newSpeed < NEUTRAL_SPEED) {
+                    newSpeed = NEUTRAL_SPEED;
+                }
+            } else {
+                // else currently skateboard is neutral or braking, increase brake strength by 2
+                newSpeed = curSpeed - 2;
+                if (newSpeed < 0) {
+                    newSpeed = 0;
+                }
             }
 
-            if (sendSpeedCmd(newProgress)) {
+            if (sendSpeedCmd(newSpeed)) {
                 // UI
-                mSeekbar.setProgress(newProgress);
-                mTextView_SpeedVal.setText(String.valueOf(newProgress));
+                mSeekbar.setProgress(newSpeed);
+                DisplaySpeed(newSpeed);
             }
 
             // NOTE: no super.onKeyDown because we want to disable volume down action
@@ -438,24 +470,35 @@ public class MainActivity extends AppCompatActivity {
             if ((flag & KeyEvent.FLAG_CANCELED) == KeyEvent.FLAG_CANCELED &&
                     (flag & KeyEvent.FLAG_CANCELED_LONG_PRESS) == KeyEvent.FLAG_CANCELED_LONG_PRESS) {
                 // Log.i(TAG, "long press handled");
-                if (sendSpeedCmd(mSpeedTemp)) {
+                if (sendSpeedCmd(mSpeedTemp_VOL)) {
                     // UI
-                    mSeekbar.setProgress(mSpeedTemp);
-                    mTextView_SpeedVal.setText(String.valueOf(mSpeedTemp));
+                    mSeekbar.setProgress(mSpeedTemp_VOL); // restore the previous speed
+                    DisplaySpeed(mSpeedTemp_VOL);
                 }
                 return true;
             }
 
-            int curProgress = mSeekbar.getProgress();
-            int newProgress = curProgress + 5;
-            if (newProgress > 100) {
-                newProgress = 100;
+            int curSpeed = mSeekbar.getProgress();
+            int newSpeed;
+            if (curSpeed >= NEUTRAL_SPEED) {
+                // if currently skateboard is at neutral or moving forward, increase speed by 5
+                newSpeed = curSpeed + 5;
+                if (newSpeed > MAX_SPEED) {
+                    newSpeed = MAX_SPEED;
+                }
+            } else {
+                // else currently skateboard is neutral or braking, decrease brake strength by 2
+                newSpeed = curSpeed + 2;
+                if (newSpeed > NEUTRAL_SPEED) {
+                    newSpeed = NEUTRAL_SPEED;
+                }
             }
 
-            if (sendSpeedCmd(newProgress)) {
+            // send new speed command
+            if (sendSpeedCmd(newSpeed)) {
                 // UI
-                mSeekbar.setProgress(newProgress);
-                mTextView_SpeedVal.setText(String.valueOf(newProgress));
+                mSeekbar.setProgress(newSpeed);
+                DisplaySpeed(newSpeed);
             }
             // NOTE: no super.onKeyDown because we want to disable volume down action
             return true;
@@ -469,32 +512,35 @@ public class MainActivity extends AppCompatActivity {
         if (keyCode==KeyEvent.KEYCODE_VOLUME_DOWN) {
             flag_shortPress = false;
             // UI
-            int newProgress = 0; // brake
+            int newProgress = 0; // strongest brake
             if (sendSpeedCmd(newProgress)) {
                 // UI
                 mSeekbar.setProgress(newProgress);
-                mTextView_SpeedVal.setText(String.valueOf(newProgress));
+                DisplaySpeed(newProgress);
             }
             // NOTE: no super.onKeyLongPress because we want to disable volume down action
             return true;
         } else if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
             flag_shortPress = false;
             // store the previous speed
-            mSpeedTemp = mSeekbar.getProgress();
-            if (mSpeedTemp == 0) {
+            mSpeedTemp_VOL = mSeekbar.getProgress();
+            if (mSpeedTemp_VOL <= NEUTRAL_SPEED) {
                 // dont do anything if current speed is 0
                 return true;
             }
-            if (mSpeedTemp > 10) {
-                mSpeedTemp -= 10; // the speed to be restored after key up is previous speed - 10.
+            if (mSpeedTemp_VOL > NEUTRAL_SPEED) {
+                mSpeedTemp_VOL -= 10; // the speed to be restored after key up is previous speed - 10.
+                if (mSpeedTemp_VOL < NEUTRAL_SPEED) {
+                    mSpeedTemp_VOL = NEUTRAL_SPEED;
+                }
             }
-            // Log.i(TAG, "stored current speed" + String.valueOf(mSpeedTemp) + String.valueOf(flag_shortPress));
+            // Log.i(TAG, "stored current speed" + String.valueOf(mSpeedTemp_VOL) + String.valueOf(flag_shortPress));
             // set to neutral speed
-            int newProgress = 5;
-            if (sendSpeedCmd(newProgress)) {
+            int newSpeed = NEUTRAL_SPEED;
+            if (sendSpeedCmd(newSpeed)) {
                 // UI
-                mSeekbar.setProgress(newProgress);
-                mTextView_SpeedVal.setText(String.valueOf(newProgress));
+                mSeekbar.setProgress(newSpeed);
+                DisplaySpeed(newSpeed);
             }
             // NOTE: no super.onKeyLongPress because we want to disable volume down action
             return true;
@@ -565,7 +611,7 @@ public class MainActivity extends AppCompatActivity {
             public void onProgressChanged(SeekBar seekBar, int i, boolean b) {
                 /* TODO disabled as it seems using volume to control is good enough
                 if (sendSpeedCmd(i)) {
-                    mTextView_SpeedVal.setText(String.valueOf(i));
+                    DisplaySpeed(i);
                 }
                 */
             }
@@ -587,13 +633,16 @@ public class MainActivity extends AppCompatActivity {
                     // mSeekbar.setEnabled(true);
                     flag_Stop = false;
 
+                    // UI
+                    mSeekbar.setProgress(NEUTRAL_SPEED);
+                    DisplaySpeed(NEUTRAL_SPEED);
                     mButton_Stop.setText(getString(R.string.button_stop));
                     mTextView_Status.setText(getString(R.string.status_running));
                 }
                 // if currently started, click to stop
                 else {
                     // tell the skateboard to stop
-                    int speedVal = 0;
+                    int speedVal = MIN_SPEED; // strongest brake
                     if (sendSpeedCmd(speedVal)) {
                         // UI
                         setParam_Stopped();
@@ -603,6 +652,43 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void SetLinearLayoutOnClickListener() {
+        mLinearLayout.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                int curSpeed = mSeekbar.getProgress();
+
+                if (mSpeedTemp_LL == MIN_SPEED) {
+                    // this means that mSpeedTemp_LL is not set.
+
+                    if (curSpeed <= NEUTRAL_SPEED) {
+                        return;
+                    }
+
+                    int newSpeed = NEUTRAL_SPEED;
+                    if (sendSpeedCmd(newSpeed)) {
+                        // UI
+                        mSeekbar.setProgress(newSpeed);
+                        DisplaySpeed(newSpeed);
+                    }
+
+                    mSpeedTemp_LL = curSpeed - 10; // mSpeedTemp_LL could not equal to MIN_SPEED from here.
+                    if (mSpeedTemp_LL < NEUTRAL_SPEED) {
+                        mSpeedTemp_LL = NEUTRAL_SPEED;
+                    }
+                } else if (mSpeedTemp_LL >= NEUTRAL_SPEED && curSpeed == NEUTRAL_SPEED) {
+                    // else if mSpeedTemp_LL is stored, restore to that speed upon click.
+
+                    if (sendSpeedCmd(mSpeedTemp_LL)) {
+                        // UI
+                        mSeekbar.setProgress(mSpeedTemp_LL);
+                        DisplaySpeed(mSpeedTemp_LL);
+                    }
+                    mSpeedTemp_LL = MIN_SPEED;
+                }
+            }
+        });
+    }
 
     /*
     /* Helper Functions
@@ -611,6 +697,10 @@ public class MainActivity extends AppCompatActivity {
         CharSequence t = msg;
         mToast.setText(msg);
         mToast.show();
+    }
+
+    private void DisplaySpeed(int progress) {
+        mTextView_SpeedVal.setText(String.valueOf(progress - NEUTRAL_SPEED));
     }
 
     private static IntentFilter makeGattUpdateIntentFilter() {

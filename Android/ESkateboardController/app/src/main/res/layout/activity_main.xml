@@ -63,7 +63,7 @@
         android:layout_marginLeft="8dp"
         android:layout_marginStart="8dp"
         android:fontFamily="casual"
-        android:text="0"
+        android:text="-10"
         android:textSize="24sp"
         app:layout_constraintBottom_toBottomOf="@+id/textView_SpeedText"
         app:layout_constraintHorizontal_weight="0"

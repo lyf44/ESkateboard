@@ -1,27 +1,31 @@
-/*
- * Copyright (c) 2016 Intel Corporation.  All rights reserved.
- * See the bottom of this file for the license terms.
- */
-
 #include <CurieBLE.h>
 #include <Servo.h>
 
 Servo mServo;
 
+/*
+ * Constants
+ */
 const int ledPin = 13; // set ledPin to use on-board LED
+const String controllerMacAddr = "6E:15:48:80:B3:B9"; //4F:BA:4B:6C:28:6F
+const int minPulseRate = 1000;
+const int maxPulseRate = 2000;
+const int neutralSpeed = 10;
+
+/*
+ * Statics
+ */
 int pwmPin = 9;
 unsigned long startTime;
 bool flag_connected = false;
-int minPulseRate = 1000;
-int maxPulseRate = 2000;
-const String controllerMacAddr = "6E:15:48:80:B3:B9"; //4F:BA:4B:6C:28:6F
-
-
-BLEService ledService("19B10000-E8F2-537E-4F6C-D104768A1214"); // create service
-
+// create service
+BLEService ledService("19B10000-E8F2-537E-4F6C-D104768A1214"); 
 // create switch characteristic and allow remote device to read and write
 BLECharCharacteristic switchChar("19B10001-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
 
+/*
+ * Code
+ */
 void setup() {
   Serial.begin(9600);
   pinMode(ledPin, OUTPUT); // use the LED on pin 13 as an output
@@ -56,13 +60,15 @@ void setup() {
   Serial.println(("Bluetooth device active, waiting for connections..."));
   startTime = millis();
   
-  mServo.write(90);
+  mServo.write(1500);
 }
 
 void loop() {
   // poll for BLE events
   // Serial.println(("polling"));
   BLE.poll();
+
+  // as long as ble is not connected, blink LED with 500ms interval
   if (!flag_connected) {
     unsigned long curTime = millis();
     if ((curTime - startTime) > 500) {
@@ -92,7 +98,7 @@ void blePeripheralDisconnectHandler(BLEDevice central) {
   // central disconnected event handler
   // Serial.print("Disconnected event, central: ");
   // Serial.println(central.address());
-  mServo.write(0);
+  mServo.write(1000);
   flag_connected = false;
   digitalWrite(ledPin, LOW);
 }
@@ -101,30 +107,13 @@ void switchCharacteristicWritten(BLEDevice central, BLECharacteristic characteri
   // central wrote new value to characteristic, update LED
   // Serial.print("Characteristic event, written: ");
   int pwmVal;
-  if (switchChar.value()) {
-    pwmVal = (switchChar.value() * 5) + 1500;
+  if (switchChar.value() >= neutralSpeed) {
+    // map from 10-100(0-90) to 1500-1950
+    pwmVal = ((switchChar.value() - neutralSpeed) * 5) + 1500;
   } else {
-    pwmVal = 0;
+    // map from 0-10(-10-0) to 1000-1500
+    pwmVal = ((switchChar.value() - neutralSpeed) * 50) + 1500;
   }
   // Serial.println(pwmVal);
   mServo.write(pwmVal);
 }
-
-/*
-  Copyright (c) 2016 Intel Corporation. All rights reserved.
-
-  This library is free software; you can redistribute it and/or
-  modify it under the terms of the GNU Lesser General Public
-  License as published by the Free Software Foundation; either
-  version 2.1 of the License, or (at your option) any later version.
-
-  This library is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR P000000URPOSE. See the GNU
-  Lesser General Public License for more details.
-
-  You should have received a copy of the GNU Lesser General Public
-  License along with this library; if not, write to the Free Software
-  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-
-  1301 USA
-*/
